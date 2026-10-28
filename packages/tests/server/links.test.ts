@@ -678,6 +678,90 @@ describe('loggerLink', () => {
     );
   });
 
+  describe('json format', () => {
+    const run = (
+      opts: Parameters<typeof loggerLink>[0],
+      link: OperationLink<AnyRouter>,
+      input: unknown = { a: [{ b: 1 }] },
+    ) => {
+      const logger = {
+        error: vi.fn(),
+        log: vi.fn(),
+      };
+      createChain({
+        links: [loggerLink({ console: logger, ...opts })(mockRuntime), link],
+        op: {
+          id: 1,
+          type: 'query',
+          input,
+          path: 'n/a',
+          context: {},
+          signal: null,
+        },
+      })
+        .subscribe({})
+        .unsubscribe();
+      return logger;
+    };
+
+    test('logs the input and result as JSON strings', () => {
+      const data = { nested: { list: [1, 2, { deep: true }] } };
+      const logger = run({ format: 'json', colorMode: 'none' }, () =>
+        observable((o) => {
+          o.next({ result: { type: 'data', data } });
+        }),
+      );
+
+      expect(logger.log.mock.calls[0]![0]).toBe('>> query #1 n/a');
+      expect(JSON.parse(logger.log.mock.calls[0]![1])).toEqual({
+        input: { a: [{ b: 1 }] },
+      });
+      expect(logger.log.mock.calls[1]![0]).toBe('<< query #1 n/a');
+      const down = JSON.parse(logger.log.mock.calls[1]![1]);
+      expect(down.input).toEqual({ a: [{ b: 1 }] });
+      expect(down.result).toEqual({ result: { type: 'data', data } });
+      expect(typeof down.elapsedMs).toBe('number');
+    });
+
+    test('uses %s instead of %O in css color mode', () => {
+      const logger = run({ format: 'json', colorMode: 'css' }, okLink);
+      expect(logger.log.mock.calls[0]![0]).toBe('%c >> query #1 %cn/a%c %s');
+      expect(typeof logger.log.mock.calls[0]![4]).toBe('string');
+    });
+
+    test('serializes errors and bigint', () => {
+      const logger = run({ format: 'json', colorMode: 'none' }, errorLink, {
+        id: BigInt(1),
+      });
+      expect(logger.log.mock.calls[0]![0]).toBe('>> query #1 n/a');
+      expect(JSON.parse(logger.log.mock.calls[0]![1])).toEqual({
+        input: { id: '1' },
+      });
+      expect(logger.error.mock.calls[0]![0]).toBe('<< query #1 n/a');
+      const down = JSON.parse(logger.error.mock.calls[0]![1]);
+      expect(down.result.name).toBe('TRPCClientError');
+      expect(down.result.message).toBe('..');
+    });
+
+    test('falls back to the object when the value is not serializable', () => {
+      const circular: Record<string, unknown> = {};
+      circular.self = circular;
+      const logger = run(
+        { format: 'json', colorMode: 'none' },
+        okLink,
+        circular,
+      );
+      expect(logger.log.mock.calls[0]![1].input).toBe(circular);
+    });
+
+    test('object format is the default', () => {
+      const logger = run({ colorMode: 'none' }, okLink);
+      expect(logger.log.mock.calls[0]![1]).toEqual({
+        input: { a: [{ b: 1 }] },
+      });
+    });
+  });
+
   test('custom logger', () => {
     const logFn = vi.fn();
     createChain({

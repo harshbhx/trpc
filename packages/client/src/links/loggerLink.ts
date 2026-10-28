@@ -58,6 +58,12 @@ type LoggerLinkFn<TRouter extends AnyRouter> = (
 
 type ColorMode = 'ansi' | 'css' | 'none';
 
+/**
+ * - `object`: the input and result are passed to the console as an object
+ * - `json`: the input and result are passed to the console as a JSON string
+ */
+type LogFormat = 'object' | 'json';
+
 export interface LoggerLinkOptions<TRouter extends AnyRouter> {
   logger?: LoggerLinkFn<TRouter>;
   enabled?: EnabledFn<TRouter>;
@@ -75,6 +81,13 @@ export interface LoggerLinkOptions<TRouter extends AnyRouter> {
    * Include context in the log - defaults to false unless `colorMode` is 'css'
    */
   withContext?: boolean;
+
+  /**
+   * How the default logger prints the input and result.
+   * Use `'json'` in consoles that can't expand objects, like React Native's or a terminal.
+   * @default 'object'
+   */
+  format?: LogFormat;
 }
 
 function isFormData(value: unknown): value is FormData {
@@ -108,10 +121,22 @@ const palettes = {
   },
 } as const;
 
+function jsonReplacer(_key: string, value: unknown) {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  if (value instanceof Error) {
+    // `message` and `name` are not enumerable on errors
+    return { name: value.name, message: value.message, ...value };
+  }
+  return value;
+}
+
 function constructPartsAndArgs(
   opts: LoggerLinkFnOptions<any> & {
     colorMode: ColorMode;
     withContext?: boolean;
+    format: LogFormat;
   },
 ) {
   const { direction, type, withContext, path, id, input } = opts;
@@ -150,7 +175,7 @@ function constructPartsAndArgs(
       type,
       `#${id}`,
       `%c${path}%c`,
-      '%O',
+      opts.format === 'json' ? '%s' : '%O',
     );
     args.push(
       css,
@@ -159,15 +184,27 @@ function constructPartsAndArgs(
     );
   }
 
-  if (direction === 'up') {
-    args.push(withContext ? { input, context: opts.context } : { input });
+  const payload =
+    direction === 'up'
+      ? withContext
+        ? { input, context: opts.context }
+        : { input }
+      : {
+          input,
+          result: opts.result,
+          elapsedMs: opts.elapsedMs,
+          ...(withContext && { context: opts.context }),
+        };
+
+  if (opts.format === 'json') {
+    try {
+      args.push(JSON.stringify(payload, jsonReplacer));
+    } catch {
+      // e.g. circular values, fall back to the object
+      args.push(payload);
+    }
   } else {
-    args.push({
-      input,
-      result: opts.result,
-      elapsedMs: opts.elapsedMs,
-      ...(withContext && { context: opts.context }),
-    });
+    args.push(payload);
   }
 
   return { parts, args };
@@ -179,10 +216,12 @@ const defaultLogger =
     c = console,
     colorMode = 'css',
     withContext,
+    format = 'object',
   }: {
     c?: ConsoleEsque;
     colorMode?: ColorMode;
     withContext?: boolean;
+    format?: LogFormat;
   }): LoggerLinkFn<TRouter> =>
   (props) => {
     const rawInput = props.input;
@@ -195,6 +234,7 @@ const defaultLogger =
       colorMode,
       input,
       withContext,
+      format,
     });
 
     const fn: 'error' | 'log' =
@@ -220,7 +260,12 @@ export function loggerLink<TRouter extends AnyRouter = AnyRouter>(
     opts.colorMode ?? (typeof window === 'undefined' ? 'ansi' : 'css');
   const withContext = opts.withContext ?? colorMode === 'css';
   const {
-    logger = defaultLogger({ c: opts.console, colorMode, withContext }),
+    logger = defaultLogger({
+      c: opts.console,
+      colorMode,
+      withContext,
+      format: opts.format,
+    }),
   } = opts;
 
   return () => {
