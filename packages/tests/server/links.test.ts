@@ -744,7 +744,7 @@ describe('loggerLink', () => {
     });
 
     test('falls back to the object when the value is not serializable', () => {
-      const circular: Record<string, unknown> = {};
+      const circular: { self?: unknown } = {};
       circular.self = circular;
       const logger = run(
         { format: 'json', colorMode: 'none' },
