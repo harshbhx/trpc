@@ -72,7 +72,25 @@ type LoggerLinkOptions<TRouter extends AnyRouter> = {
    * Include context in the log - defaults to false unless colorMode is 'css'
    */
   withContext?: boolean;
+  /**
+   * How the default logger prints the input and result.
+   * Use 'json' in consoles that can't expand objects, like React Native's or a terminal.
+   * @default 'object'
+   */
+  format?: 'object' | 'json';
 };
+```
+
+## Logging JSON in React Native and terminals
+
+Some consoles, like React Native's, can't expand objects and print nested values as `[Object]` or `[Array]`. Set `format: 'json'` to print the input and result as a JSON string instead:
+
+```ts
+loggerLink({
+  format: 'json',
+  // the CSS color mode only works in browser consoles
+  colorMode: 'ansi',
+});
 ```
 
 ## Reference
