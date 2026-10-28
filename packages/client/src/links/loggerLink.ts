@@ -127,7 +127,7 @@ function jsonReplacer(_key: string, value: unknown) {
   }
   if (value instanceof Error) {
     // `message` and `name` are not enumerable on errors
-    return { name: value.name, message: value.message, ...value };
+    return { ...value, name: value.name, message: value.message };
   }
   return value;
 }
